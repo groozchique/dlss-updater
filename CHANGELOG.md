@@ -2,6 +2,11 @@
 
 Releases before 1.1.3 are listed on the [releases page](https://github.com/handsomefox/dlss-updater/releases).
 
+## 1.3.4
+
+- Update zip to 9.0.5, rustls to 0.23.46, and ruzstd to 0.9.1, which fix RustSec security advisories.
+- Update jiff to 0.2.38 and embed-resource to 3.0.12.
+
 ## 1.3.3
 
 - Update thiserror to 2.0.21.
