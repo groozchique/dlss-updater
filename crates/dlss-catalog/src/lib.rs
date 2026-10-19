@@ -330,7 +330,7 @@ fn extract_to_staging(
     let mut extracted_bytes = 0_u64;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
-        let raw_name = entry.name().replace('\\', "/");
+        let raw_name = entry.name()?.replace('\\', "/");
         let Some(safe) = entry.enclosed_name() else {
             return Err(CatalogError::UnsafePath(raw_name));
         };
@@ -935,7 +935,7 @@ mod tests {
         let mut names = Vec::new();
         for index in 0..zip.len() {
             let entry = zip.by_index(index).unwrap();
-            let normalized = entry.name().replace('\\', "/");
+            let normalized = entry.name().unwrap().replace('\\', "/");
             let parts: Vec<_> = normalized.split('/').collect();
             if parts.len() == 3
                 && parts[0].eq_ignore_ascii_case("bin")
