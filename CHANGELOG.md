@@ -2,6 +2,14 @@
 
 Releases before 1.1.3 are listed on the [releases page](https://github.com/handsomefox/dlss-updater/releases).
 
+## 1.3.5
+
+- Stop offering DLSS updates for games on DLSS 1, such as Battlefield V. A DLSS 2 or later DLL
+  turns DLSS off in those games. The library shows them as "DLSS 1, can't update", and the
+  game's page no longer offers a later DLL for DLSS Super Resolution.
+- If an earlier version already updated a DLSS 1 game, open the game's page, choose the
+  "Restore backup 1.x" entry for DLSS Super Resolution, and apply the change.
+
 ## 1.3.4
 
 - Update zip to 9.0.5, rustls to 0.23.46, and ruzstd to 0.9.1, which fix RustSec security advisories.
