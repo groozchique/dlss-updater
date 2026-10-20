@@ -9,6 +9,8 @@ Releases before 1.1.3 are listed on the [releases page](https://github.com/hands
   game's page no longer offers a later DLL for DLSS Super Resolution.
 - If an earlier version already updated a DLSS 1 game, open the game's page, choose the
   "Restore backup 1.x" entry for DLSS Super Resolution, and apply the change.
+- Update rustls-webpki to 0.103.16 and webpki-root-certs to 1.0.10, which fix RustSec security
+  advisories.
 
 ## 1.3.4
 
