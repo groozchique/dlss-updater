@@ -14,8 +14,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Starts the error `plan_target_profile` returns for a target across the
+/// DLSS 1 line, so the app can recognize it.
+pub const DLSS_GENERATION_MISMATCH: &str =
+    "DLSS 1 and later Super Resolution DLLs cannot replace each other";
+
 /// Build the direct one-click plan. Unknown, equal-version/different-build, newer,
-/// identical, missing, and differently named DLLs are deliberately preserved.
+/// identical, missing, and differently named DLLs are deliberately preserved,
+/// and so is a DLSS 1 Super Resolution DLL, which no later DLL can replace.
 #[must_use]
 pub fn plan_strict_upgrades(
     nonce: impl Into<String>,
@@ -53,7 +59,13 @@ fn plan_filtered_upgrades(
             let name = fold_file_name(&current.file_name)?;
             let target = latest_by_name.get(&name)?;
             let current_version = current.metadata.version?;
-            (target.version > current_version).then(|| PlannedSwap {
+            let upgrade = target.version > current_version
+                && !crate::crosses_dlss_generation(
+                    &current.file_name,
+                    Some(current_version),
+                    Some(target.version),
+                );
+            upgrade.then(|| PlannedSwap {
                 game: current.game_id.clone(),
                 installation: current.id.clone(),
                 target_path: current.path.clone(),
@@ -86,9 +98,13 @@ pub fn plan_touches_streamline(plans: &[OperationPlan]) -> bool {
 /// Unlike the one-click planner, this deliberately permits downgrades,
 /// different builds with the same numeric version, and restore points.
 ///
+/// A restore point may cross between DLSS 1 and later Super Resolution,
+/// because it puts back the file the game shipped with. Any other target that
+/// crosses is refused.
+///
 /// # Errors
-/// Returns an error when the profile references an unknown installation or an
-/// unavailable source.
+/// Returns an error when the profile references an unknown installation, an
+/// unavailable source, or a target on the other side of the DLSS 1 line.
 pub fn plan_target_profile(
     nonce: impl Into<String>,
     installed: &[DllInstallation],
@@ -147,6 +163,19 @@ pub fn plan_target_profile(
                 installation_id.0
             ))
         })?;
+
+        if !matches!(desired, DesiredDll::Restore { .. })
+            && crate::crosses_dlss_generation(
+                &current.file_name,
+                current.metadata.version,
+                target.2,
+            )
+        {
+            return Err(CoreError::Validation(format!(
+                "{DLSS_GENERATION_MISMATCH} for DLL installation {}",
+                installation_id.0
+            )));
+        }
 
         let comparison = compare_target(
             current.metadata.version,
@@ -662,7 +691,7 @@ mod tests {
         fs::write(&target_path, b"new").unwrap();
         let latest = CatalogDll {
             file_name: "NVNGX_DLSS.DLL".into(),
-            version: DllVersion::new(2, 0, 0, 0),
+            version: DllVersion::new(3, 0, 0, 0),
             sha256: hash_file(&target_path).unwrap(),
             source: target_path,
             release: ReleaseId("r".into()),
@@ -670,7 +699,7 @@ mod tests {
         let plan = plan_strict_upgrades(
             "n",
             &[
-                installation(current_path, Some(DllVersion::new(1, 0, 0, 0))),
+                installation(current_path, Some(DllVersion::new(2, 0, 0, 0))),
                 installation(unknown_path, None),
             ],
             &[latest],
@@ -695,10 +724,10 @@ mod tests {
             let source = dir.path().join(format!("new-{name}"));
             fs::write(&current, b"old").unwrap();
             fs::write(&source, name.as_bytes()).unwrap();
-            installed.push(installation(current, Some(DllVersion::new(1, 0, 0, 0))));
+            installed.push(installation(current, Some(DllVersion::new(2, 0, 0, 0))));
             latest.push(CatalogDll {
                 file_name: name.into(),
-                version: DllVersion::new(2, 0, 0, 0),
+                version: DllVersion::new(3, 0, 0, 0),
                 sha256: hash_file(&source).unwrap(),
                 source,
                 release: ReleaseId("r".into()),
@@ -717,6 +746,131 @@ mod tests {
         assert!(!plan_touches_streamline(&[plan]));
         let streamline_only = plan_dlss_only_upgrades("n", &installed[2..], &latest[2..]);
         assert!(streamline_only.swaps.is_empty());
+    }
+
+    /// A DLSS 1 game with a Super Resolution and a Frame Generation DLL, both
+    /// at 1.x, and the matching DLLs from a current release.
+    fn dlss1_game(dir: &Path) -> (Vec<DllInstallation>, Vec<CatalogDll>) {
+        let mut installed = Vec::new();
+        let mut latest = Vec::new();
+        for name in ["nvngx_dlss.dll", "nvngx_dlssg.dll"] {
+            let current = dir.join(name);
+            let source = dir.join(format!("new-{name}"));
+            fs::write(&current, b"old").unwrap();
+            fs::write(&source, name.as_bytes()).unwrap();
+            installed.push(installation(current, Some(DllVersion::new(1, 0, 13, 0))));
+            latest.push(CatalogDll {
+                file_name: name.into(),
+                version: DllVersion::new(310, 9, 16, 0),
+                sha256: hash_file(&source).unwrap(),
+                source,
+                release: ReleaseId("r".into()),
+            });
+        }
+        (installed, latest)
+    }
+
+    #[test]
+    fn one_click_planners_skip_dlss1_super_resolution() {
+        let dir = tempdir().unwrap();
+        let (installed, latest) = dlss1_game(dir.path());
+        for plan in [
+            plan_strict_upgrades("n", &installed, &latest),
+            plan_dlss_only_upgrades("n", &installed, &latest),
+        ] {
+            let names: Vec<_> = plan
+                .swaps
+                .iter()
+                .map(|swap| swap.target_path.file_name().unwrap().to_owned())
+                .collect();
+            assert_eq!(names, ["nvngx_dlssg.dll"]);
+        }
+    }
+
+    #[test]
+    fn advanced_profile_rejects_targets_across_the_dlss1_line() {
+        let dir = tempdir().unwrap();
+        let (installed, latest) = dlss1_game(dir.path());
+        let sr = &installed[0];
+        let latest_official = TargetProfile {
+            targets: [(sr.id.clone(), DesiredDll::LatestOfficial)].into(),
+        };
+        let pinned = TargetProfile {
+            targets: [(
+                sr.id.clone(),
+                DesiredDll::Cached {
+                    release: latest[0].release.clone(),
+                    sha256: latest[0].sha256,
+                },
+            )]
+            .into(),
+        };
+        for profile in [&latest_official, &pinned] {
+            let result = plan_target_profile("n", &installed, &latest, &latest, &[], profile);
+            assert!(
+                matches!(&result, Err(CoreError::Validation(message))
+                    if message.starts_with(DLSS_GENERATION_MISMATCH)),
+                "{result:?}"
+            );
+        }
+
+        // An imported DLSS 1 DLL cannot go into a game on DLSS 2 or later.
+        let path = dir.path().join("modern").join("nvngx_dlss.dll");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"modern").unwrap();
+        let modern = installation(path, Some(DllVersion::new(2, 5, 1, 0)));
+        let source = dir.path().join("imported.dll");
+        fs::write(&source, b"imported").unwrap();
+        let imported = CatalogDll {
+            file_name: "nvngx_dlss.dll".into(),
+            version: DllVersion::new(1, 0, 13, 0),
+            sha256: hash_file(&source).unwrap(),
+            source,
+            release: ReleaseId("imported".into()),
+        };
+        let profile = TargetProfile {
+            targets: [(
+                modern.id.clone(),
+                DesiredDll::Cached {
+                    release: imported.release.clone(),
+                    sha256: imported.sha256,
+                },
+            )]
+            .into(),
+        };
+        let result = plan_target_profile("n", &[modern], &[], &[imported], &[], &profile);
+        assert!(matches!(result, Err(CoreError::Validation(_))));
+    }
+
+    #[test]
+    fn advanced_profile_restores_dlss1_over_a_later_dll() {
+        // An earlier version of this app put a current DLL into a DLSS 1 game.
+        // Restoring the backup is how the game gets DLSS back.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nvngx_dlss.dll");
+        fs::write(&path, b"current").unwrap();
+        let installed = installation(path.clone(), Some(DllVersion::new(310, 9, 16, 0)));
+        let content = dir.path().join("backup.bin");
+        fs::write(&content, b"original").unwrap();
+        let backup = BackupRecord {
+            sha256: hash_file(&content).unwrap(),
+            content_path: content,
+            original_path: path,
+            version: Some(DllVersion::new(1, 0, 13, 0)),
+            created_unix: 1,
+        };
+        let profile = TargetProfile {
+            targets: [(
+                installed.id.clone(),
+                DesiredDll::Restore {
+                    backup_sha256: backup.sha256,
+                },
+            )]
+            .into(),
+        };
+        let plan = plan_target_profile("n", &[installed], &[], &[], &[backup], &profile).unwrap();
+        assert_eq!(plan.swaps.len(), 1);
+        assert_eq!(plan.swaps[0].comparison, Comparison::Downgrade);
     }
 
     #[test]

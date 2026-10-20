@@ -46,16 +46,30 @@ pub(crate) struct ReviewState {
     /// False while the latest official release still needs to be downloaded
     /// before the swaps can be previewed.
     ready: bool,
+    /// Games in an update whose DLSS 1 DLL the update leaves alone.
+    dlss1_games: Vec<String>,
 }
 
 impl DlssApp {
     pub(crate) fn open_review(&mut self, intent: ReviewIntent) {
         let (rows, errors, ready) = self.build_review_rows(&intent);
+        let dlss1_games = match &intent {
+            ReviewIntent::QuickDlss(ids) | ReviewIntent::AllDlls(ids) => self
+                .games
+                .iter()
+                .filter(|game| game.dlss1 && ids.contains(&game.id))
+                .map(|game| game.name.clone())
+                .collect(),
+            // Staged targets that cross the DLSS 1 line fail their preview,
+            // and the error says why.
+            ReviewIntent::Profiles(_) => Vec::new(),
+        };
         self.review = Some(ReviewState {
             intent,
             rows,
             errors,
             ready,
+            dlss1_games,
         });
     }
 
@@ -353,6 +367,16 @@ fn review_warnings(ui: &mut egui::Ui, review: &ReviewState) {
             false,
         );
     }
+    if !review.dlss1_games.is_empty() {
+        ui.add_space(4.0);
+        widgets::banner(
+            ui,
+            theme::INFO,
+            icons::INFO,
+            &dlss1_note(&review.dlss1_games),
+            false,
+        );
+    }
     if matches!(review.intent, ReviewIntent::QuickDlss(_)) {
         ui.label(
             egui::RichText::new(
@@ -363,6 +387,23 @@ fn review_warnings(ui: &mut egui::Ui, review: &ReviewState) {
             .size(12.0),
         );
     }
+}
+
+fn dlss1_note(games: &[String]) -> String {
+    let names = match games {
+        [game] => game.clone(),
+        [first, second] => format!("{first} and {second}"),
+        _ => plural(games.len(), "game"),
+    };
+    let (verb, kept) = if games.len() == 1 {
+        ("uses", "its DLSS DLL as it is")
+    } else {
+        ("use", "their DLSS DLLs as they are")
+    };
+    format!(
+        "{names} {verb} DLSS 1. DLSS 2 and later turn DLSS off in a DLSS 1 game, \
+         so this update leaves {kept}."
+    )
 }
 
 fn checked_risk_games(rows: &[ReviewRow]) -> std::collections::BTreeSet<&'static str> {
@@ -380,10 +421,12 @@ fn review_row_list(ui: &mut egui::Ui, review: &mut ReviewState) {
                 ui.label(widgets::icon(icons::CHECK_CIRCLE, 36.0, theme::SUCCESS));
                 ui.add_space(4.0);
                 ui.heading("Nothing to update");
-                ui.label(
-                    egui::RichText::new("Every DLL here already matches the latest release.")
-                        .color(theme::TEXT_MUTED),
-                );
+                let detail = if review.dlss1_games.is_empty() {
+                    "Every DLL here already matches the latest release."
+                } else {
+                    "No other DLL here has a newer release."
+                };
+                ui.label(egui::RichText::new(detail).color(theme::TEXT_MUTED));
             });
             ui.add_space(12.0);
         }
@@ -606,6 +649,9 @@ fn version_text(version: Option<dlss_core::DllVersion>) -> String {
 pub(crate) fn profile_preview_error_label(error: &str) -> &'static str {
     if error.contains("desired source is unavailable") {
         "Required DLL source is unavailable. Download it or choose another target."
+    } else if error.contains(dlss_core::DLSS_GENERATION_MISMATCH) {
+        "DLSS 1 and DLSS 2 or later cannot replace each other. Keep the installed DLL \
+         or restore a backup."
     } else if error.contains("unknown DLL installation") {
         "The selected DLL is no longer present. Rescan and review the target."
     } else {
@@ -625,6 +671,21 @@ mod tests {
             "Required DLL source is unavailable. Download it or choose another target."
         );
         assert!(!profile_preview_error_label(raw).contains("manual:"));
+
+        let raw = format!(
+            "validation failed: {} for DLL installation manual:00610062",
+            dlss_core::DLSS_GENERATION_MISMATCH
+        );
+        assert!(profile_preview_error_label(&raw).starts_with("DLSS 1 and DLSS 2"));
+    }
+
+    #[test]
+    fn dlss1_note_names_up_to_two_games() {
+        assert!(dlss1_note(&["Battlefield V".into()]).starts_with("Battlefield V uses DLSS 1."));
+        assert!(dlss1_note(&["A".into(), "B".into()]).starts_with("A and B use DLSS 1."));
+        assert!(
+            dlss1_note(&["A".into(), "B".into(), "C".into()]).starts_with("3 games use DLSS 1.")
+        );
     }
 
     fn risk_row(game_id: &str, risk: Option<&'static str>, checked: bool) -> ReviewRow {

@@ -643,6 +643,11 @@ fn dlss_version_cell(ui: &mut egui::Ui, game: &GameRow, latest: Option<dlss_core
     }
 }
 
+/// Why a DLSS 1 Super Resolution DLL is never updated, wherever the app
+/// shows one.
+pub(crate) const DLSS1_EXPLANATION: &str = "This game uses DLSS 1. DLSS 2 and later work \
+     differently and turn DLSS off in a DLSS 1 game, so its DLSS DLL stays as it is.";
+
 /// Draws the status column. Returns true when the Update button was clicked.
 ///
 /// `activity` is `Some(true)` while the worker changes this game, and
@@ -700,6 +705,11 @@ fn status_cell(
                 "Some files in this game's folder could not be inspected. \
                  The log folder, under About, has the details.",
             );
+            false
+        }
+        RowStatus::Dlss1 => {
+            widgets::status_text(ui, icons::INFO, "DLSS 1, can't update", theme::TEXT_MUTED)
+                .on_hover_text(DLSS1_EXPLANATION);
             false
         }
         RowStatus::OptionalUpdates => {

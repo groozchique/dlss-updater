@@ -277,6 +277,13 @@ impl DlssApp {
                     let comparison = target.map_or(dlss_core::Comparison::Unavailable, |target| {
                         dlss_core::compare_dll(Some(&dll.metadata), Some(target))
                     });
+                    let dlss1 = target.is_some_and(|target| {
+                        dlss_core::crosses_dlss_generation(
+                            &dll.file_name,
+                            dll.metadata.version,
+                            Some(target.version),
+                        )
+                    });
                     row.col(|ui| {
                         let kind = dlss_core::DllKind::classify(&dll.file_name);
                         ui.label(widgets::icon(dll_kind_icon(kind), 15.0, theme::ACCENT));
@@ -298,14 +305,14 @@ impl DlssApp {
                     });
                     row.col(|ui| version_cell(ui, dll.metadata.version, theme::TEXT));
                     row.col(|ui| {
-                        let color = if comparison == dlss_core::Comparison::Upgrade {
+                        let color = if comparison == dlss_core::Comparison::Upgrade && !dlss1 {
                             theme::ACCENT
                         } else {
                             theme::TEXT_MUTED
                         };
                         version_cell(ui, target.map(|target| target.version), color);
                     });
-                    row.col(|ui| comparison_cell(ui, comparison));
+                    row.col(|ui| comparison_cell(ui, comparison, dlss1));
                     row.col(|ui| signature_cell(ui, dll.metadata.signature));
                     row.col(|ui| self.desired_target_combo(ui, dll));
                 });
@@ -317,6 +324,15 @@ impl DlssApp {
         reason = "the selector builds official, imported, and backup choices in one widget"
     )]
     fn desired_target_combo(&mut self, ui: &mut egui::Ui, dll: &dlss_core::DllInstallation) {
+        // Restores stay on offer: they put back what the game shipped with.
+        let fits = |version: dlss_core::DllVersion| {
+            !dlss_core::crosses_dlss_generation(&dll.file_name, dll.metadata.version, Some(version))
+        };
+        let latest_fits = self
+            .latest_catalog()
+            .iter()
+            .filter(|candidate| dlss_core::same_file_name(&candidate.file_name, &dll.file_name))
+            .all(|candidate| fits(candidate.version));
         let mut cached_options: Vec<_> = self
             .releases
             .iter()
@@ -327,6 +343,7 @@ impl DlssApp {
                     .iter()
                     .filter(|candidate| {
                         dlss_core::same_file_name(&candidate.file_name, &dll.file_name)
+                            && fits(candidate.version)
                     })
                     .map(|candidate| {
                         (
@@ -342,7 +359,10 @@ impl DlssApp {
         cached_options.extend(
             self.imports
                 .iter()
-                .filter(|record| dlss_core::same_file_name(&record.file_name, &dll.file_name))
+                .filter(|record| {
+                    dlss_core::same_file_name(&record.file_name, &dll.file_name)
+                        && fits(record.version)
+                })
                 .map(|record| {
                     (
                         dlss_core::DesiredDll::Cached {
@@ -419,11 +439,13 @@ impl DlssApp {
                         dlss_core::DesiredDll::KeepInstalled,
                         &installed_label,
                     );
-                    ui.selectable_value(
-                        &mut desired,
-                        dlss_core::DesiredDll::LatestOfficial,
-                        "Latest official",
-                    );
+                    if latest_fits {
+                        ui.selectable_value(
+                            &mut desired,
+                            dlss_core::DesiredDll::LatestOfficial,
+                            "Latest official",
+                        );
+                    }
                     for (target, label) in &cached_options {
                         ui.selectable_value(&mut desired, target.clone(), label);
                     }
@@ -459,8 +481,14 @@ fn version_cell(ui: &mut egui::Ui, version: Option<dlss_core::DllVersion>, color
 }
 
 /// The comparison against the latest release, as colored text rather than a
-/// pill, so a column of them stays quiet.
-fn comparison_cell(ui: &mut egui::Ui, comparison: dlss_core::Comparison) {
+/// pill, so a column of them stays quiet. A DLSS 1 DLL says so instead,
+/// because the latest release cannot replace it.
+fn comparison_cell(ui: &mut egui::Ui, comparison: dlss_core::Comparison, dlss1: bool) {
+    if dlss1 {
+        widgets::status_text(ui, icons::INFO, "DLSS 1", theme::TEXT_MUTED)
+            .on_hover_text(super::library::DLSS1_EXPLANATION);
+        return;
+    }
     let (icon, color) = match comparison {
         dlss_core::Comparison::Upgrade => (icons::ARROW_CIRCLE_UP, theme::ACCENT),
         dlss_core::Comparison::Identical => (icons::CHECK, theme::SUCCESS),

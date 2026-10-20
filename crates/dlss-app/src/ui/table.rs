@@ -16,6 +16,8 @@ pub(crate) enum RowStatus {
     NotChecked,
     /// Some files could not be read during the scan.
     Problem,
+    /// The game uses DLSS 1, which a later DLL turns off.
+    Dlss1,
     /// DLSS is current, but Streamline or Reflex have newer builds. Those
     /// are opt-in, so the row points at the game page instead of a button.
     OptionalUpdates,
@@ -30,6 +32,9 @@ pub(crate) fn row_status(game: &GameRow, latest_ready: bool) -> RowStatus {
         RowStatus::Problem
     } else if game.dlls == 0 {
         RowStatus::NoDlls
+    } else if game.dlss1 && game.dlss_upgrades == 0 {
+        // Known from the scan alone, so it needs no downloaded release.
+        RowStatus::Dlss1
     } else if !latest_ready {
         RowStatus::NotChecked
     } else if game.dlss_upgrades > 0 {
@@ -187,6 +192,7 @@ pub(crate) mod tests {
             dlss_upgrades: 0,
             upgrades,
             has_unknown: false,
+            dlss1: false,
             last_operation: None,
             details: Vec::new(),
             inspection_errors: 0,
@@ -274,10 +280,15 @@ pub(crate) mod tests {
         unknown.has_unknown = true;
         let current = row("Current", "Steam", 1, None, 0);
         let empty = row("Empty", "Steam", 0, None, 0);
+        let mut legacy = row("Legacy", "Steam", 2, None, 1);
+        legacy.dlss1 = true;
 
         assert_eq!(row_status(&update, true), RowStatus::UpdateAvailable);
         assert_eq!(row_status(&optional, true), RowStatus::OptionalUpdates);
         assert_eq!(row_status(&problem, true), RowStatus::Problem);
+        assert_eq!(row_status(&legacy, true), RowStatus::Dlss1);
+        // A DLSS 1 game never offers an update, even before a download.
+        assert_eq!(row_status(&legacy, false), RowStatus::Dlss1);
         assert_eq!(row_status(&unknown, true), RowStatus::VersionUnknown);
         assert_eq!(row_status(&current, true), RowStatus::UpToDate);
         assert_eq!(row_status(&empty, true), RowStatus::NoDlls);
@@ -285,11 +296,11 @@ pub(crate) mod tests {
         assert_eq!(row_status(&current, false), RowStatus::NotChecked);
         assert_eq!(row_status(&empty, false), RowStatus::NoDlls);
 
-        let games = [empty, current, unknown, optional, problem, update];
+        let games = [empty, current, unknown, optional, legacy, problem, update];
         assert_eq!(
             names_for(&games, SortKey::Status, true),
             [
-                "Update", "Problem", "Optional", "Unknown", "Current", "Empty"
+                "Update", "Problem", "Legacy", "Optional", "Unknown", "Current", "Empty"
             ]
         );
     }

@@ -91,6 +91,37 @@ impl DllKind {
     }
 }
 
+/// True for a DLSS Super Resolution DLL from before 2.0.
+///
+/// DLSS 1 ran a network trained for each game. DLSS 2.0 replaced it with one
+/// general network that needs motion vectors and jittered frames from the
+/// game, so the two generations need different game code. A 2.0 or later
+/// `nvngx_dlss.dll` in a DLSS 1 game turns DLSS off. Battlefield V greys the
+/// option out. DLSS Swapper never offers a DLL across that line, and Recol's
+/// DLSS-Updater skips any `nvngx_dlss.dll` below 2.0.0. Both apply the rule to
+/// Super Resolution alone, and so does this.
+#[must_use]
+pub fn is_dlss1(file_name: &OsStr, version: DllVersion) -> bool {
+    DllKind::classify(file_name) == Some(DllKind::DlssSuperResolution) && version.major < 2
+}
+
+/// True when replacing `installed` with `target` moves a DLSS Super
+/// Resolution DLL between DLSS 1 and 2.0 or later, in either direction. An
+/// unknown version never counts as crossing.
+#[must_use]
+pub fn crosses_dlss_generation(
+    file_name: &OsStr,
+    installed: Option<DllVersion>,
+    target: Option<DllVersion>,
+) -> bool {
+    match (installed, target) {
+        (Some(installed), Some(target)) => {
+            is_dlss1(file_name, installed) != is_dlss1(file_name, target)
+        }
+        _ => false,
+    }
+}
+
 #[must_use]
 pub fn friendly_dll_label(file_name: &OsStr) -> String {
     match DllKind::classify(file_name) {
@@ -549,6 +580,33 @@ mod tests {
             friendly_dll_label(OsStr::new("SL.INTERPOSER.DLL")),
             "Streamline — interposer"
         );
+    }
+
+    #[test]
+    fn dlss1_is_super_resolution_below_two() {
+        let sr = OsStr::new("NVNGX_DLSS.DLL");
+        let old = DllVersion::new(1, 0, 13, 0);
+        let new = DllVersion::new(310, 9, 16, 0);
+        assert!(is_dlss1(sr, old));
+        assert!(!is_dlss1(sr, DllVersion::new(2, 0, 0, 0)));
+        // Frame Generation and Streamline keep their own numbering.
+        assert!(!is_dlss1(OsStr::new("nvngx_dlssg.dll"), old));
+        assert!(!is_dlss1(OsStr::new("sl.common.dll"), old));
+
+        assert!(crosses_dlss_generation(sr, Some(old), Some(new)));
+        assert!(crosses_dlss_generation(sr, Some(new), Some(old)));
+        assert!(!crosses_dlss_generation(sr, Some(old), Some(old)));
+        assert!(!crosses_dlss_generation(
+            sr,
+            Some(DllVersion::new(2, 5, 1, 0)),
+            Some(new)
+        ));
+        assert!(!crosses_dlss_generation(sr, None, Some(new)));
+        assert!(!crosses_dlss_generation(
+            OsStr::new("nvngx_dlssg.dll"),
+            Some(old),
+            Some(new)
+        ));
     }
 
     #[cfg(unix)]

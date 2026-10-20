@@ -10,6 +10,7 @@ A Windows desktop app that replaces the official NVIDIA Streamline and DLSS DLLs
 - Finds games installed through Steam, the Epic Games Store, and GOG.
 - Accepts game folders you add by hand.
 - Offers one-click upgrades to strictly newer DLLs, plus reviewed changes per DLL or in bulk.
+- Leaves the DLSS DLL alone in DLSS 1 games such as Battlefield V, because a DLSS 2 or later DLL turns DLSS off in them.
 - Downloads official NVIDIA Streamline release archives on demand.
 - Imports a DLL you already have, such as one from another game, if it is an x86-64 DLL signed by NVIDIA.
 - Validates archive paths, file sizes, PE architecture, hashes, and Authenticode signatures.

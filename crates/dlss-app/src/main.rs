@@ -215,6 +215,9 @@ struct GameRow {
     upgrades: usize,
     /// A DLL in this game has no readable version.
     has_unknown: bool,
+    /// The game has a DLSS 1 Super Resolution DLL, which no later DLL can
+    /// replace.
+    dlss1: bool,
     /// What the last update or undo did to this game, this session.
     last_operation: Option<String>,
     details: Vec<dlss_core::DllInstallation>,
@@ -228,6 +231,11 @@ impl GameRow {
         let dll_count = game.dlls.len();
         let inspection_errors = game.inspection_errors;
         let has_unknown = game.dlls.iter().any(|dll| dll.metadata.version.is_none());
+        let dlss1 = game.dlls.iter().any(|dll| {
+            dll.metadata
+                .version
+                .is_some_and(|version| dlss_core::is_dlss1(&dll.file_name, version))
+        });
         let dlss_version = game
             .dlls
             .iter()
@@ -255,6 +263,7 @@ impl GameRow {
             dlss_upgrades: 0,
             upgrades: 0,
             has_unknown,
+            dlss1,
             last_operation: None,
             details: game.dlls,
             inspection_errors,
@@ -1290,6 +1299,11 @@ impl DlssApp {
                 latest.iter().any(|candidate| {
                     dlss_core::same_file_name(&candidate.file_name, &installed.file_name)
                         && candidate.version > installed_version
+                        && !dlss_core::crosses_dlss_generation(
+                            &installed.file_name,
+                            Some(installed_version),
+                            Some(candidate.version),
+                        )
                 })
             };
             game.upgrades = game.details.iter().filter(is_upgrade).count();
