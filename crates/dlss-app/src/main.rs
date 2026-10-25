@@ -31,12 +31,26 @@ fn main() -> eframe::Result {
             .with_min_inner_size([1000.0, 640.0]),
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         "DLSS Updater",
         options,
         Box::new(|cc| Ok(Box::new(DlssApp::new(cc)))),
-    )
+    );
+    // eframe saves the app's state before `run_native` returns, so the
+    // updated copy starts from everything this one knew.
+    if let Err(error) = app_update::restart_if_requested() {
+        tracing::error!(%error, "could not start the updated app");
+    }
+    result
 }
+
+/// Where this app's releases are published.
+const APP_INFO: app_update::AppInfo = app_update::AppInfo {
+    owner: "handsomefox",
+    repo: "dlss-updater",
+    bin: "dlss-updater",
+    version: env!("CARGO_PKG_VERSION"),
+};
 
 #[cfg_attr(
     windows,
@@ -136,6 +150,7 @@ struct DlssApp {
         std::collections::HashMap<dlss_core::GameId, Vec<dlss_core::DllInstallationId>>,
     #[cfg(windows)]
     tool_runtime: WindowsToolRuntime,
+    updater: app_update::Updater,
 }
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
@@ -145,6 +160,7 @@ enum AppWindow {
     Activity,
     Roots,
     About,
+    Update,
 }
 
 /// Which main content the central panel shows.
@@ -337,6 +353,10 @@ impl DlssApp {
             profiles_applying: std::collections::HashMap::new(),
             #[cfg(windows)]
             tool_runtime: WindowsToolRuntime::default(),
+            updater: app_update::Updater::new(APP_INFO, {
+                let ctx = cc.egui_ctx.clone();
+                move || ctx.request_repaint()
+            }),
         };
         let _ = app.worker.commands.send(Command::Scan);
         let _ = app.worker.commands.send(Command::RefreshBackups);
@@ -1091,6 +1111,14 @@ impl DlssApp {
                     widgets::icon_text(icons::ARROW_SQUARE_OUT, "Project page"),
                     env!("CARGO_PKG_REPOSITORY"),
                 );
+                ui.add_space(6.0);
+                if ui
+                    .button(widgets::icon_text(icons::ARROW_CIRCLE_UP, "App updates…"))
+                    .on_hover_text("Check for a new version and choose how often to check")
+                    .clicked()
+                {
+                    self.open_windows.insert(AppWindow::Update);
+                }
                 ui.add_space(10.0);
                 ui.separator();
                 widgets::section_title(ui, "Folders", None);
@@ -1452,6 +1480,7 @@ fn backup_warning_message(report: &dlss_core::BackupLoadReport) -> Option<String
 impl eframe::App for DlssApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.receive_worker_events(ctx);
+        self.updater.poll(&mut self.persisted.app_updates);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1539,6 +1568,9 @@ impl DlssApp {
         }
         if self.open_windows.contains(&AppWindow::About) {
             self.about_window(ctx);
+        }
+        if self.open_windows.contains(&AppWindow::Update) {
+            self.update_window(ctx);
         }
         if self.review.is_some() {
             self.review_window(ctx);

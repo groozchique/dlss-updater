@@ -10,6 +10,7 @@ The workspace is layered so that everything portable stays testable on Linux:
 - `dlss-catalog` downloads and validates official Streamline release archives.
 - `dlss-platform` implements the core traits, and confines Win32 and registry calls to `windows.rs`.
 - `dlss-app` is the egui desktop binary, and the only crate that depends on egui.
+- `app-update` updates the app itself from its GitHub releases. Its `lib.rs` is byte-for-byte the same in all five apps, so change it in every app at once. `ui/update.rs` holds this app's chip and dialog around it.
 
 Keep platform-neutral behavior in `dlss-core` and Windows APIs in `dlss-platform`. A new Win32 call goes in `windows.rs`, not wherever it is convenient, because that division is the only reason the test suite runs off Windows at all.
 
@@ -27,7 +28,7 @@ Unit tests live beside their implementations in `#[cfg(test)]` modules. Use `tem
 
 Cover the rejection path, not only the success path. Archive traversal, hash mismatches, path validation, elevation plans, backups, and restores are where a regression is expensive and silent. No coverage percentage is required, but a safety regression should have a test that catches it.
 
-CI cannot reach the Windows-only paths. Exercise discovery, downloads, DLL replacement, undo, UAC, and the registry controls by hand on Windows.
+CI cannot reach the Windows-only paths. Exercise discovery, downloads, DLL replacement, undo, UAC, and the registry controls by hand on Windows. The same goes for an app update: run a debug build with `APP_UPDATE_PRETEND_VERSION` set to an older version.
 
 ## Bump CI tool pins by hand
 

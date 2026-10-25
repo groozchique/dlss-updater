@@ -8,4 +8,5 @@ pub(crate) struct PersistedState {
     pub tool_restore_points: Vec<dlss_core::ToolRestorePoint>,
     pub activity: Vec<dlss_core::ActivityRecord>,
     pub disclaimer_acknowledged: bool,
+    pub app_updates: app_update::Settings,
 }

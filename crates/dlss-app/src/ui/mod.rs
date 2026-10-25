@@ -8,5 +8,6 @@ pub(crate) mod table;
 pub(crate) mod theme;
 pub(crate) mod toast;
 pub(crate) mod toolbar;
+pub(crate) mod update;
 pub(crate) mod widgets;
 pub(crate) mod windows;

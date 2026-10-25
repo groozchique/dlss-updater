@@ -87,6 +87,7 @@ impl DlssApp {
         {
             self.open_windows.insert(AppWindow::About);
         }
+        self.app_update_chip(ui);
         if ui
             .button(widgets::icon_text(icons::WRENCH, "Tools"))
             .on_hover_text("Machine-wide NVIDIA settings, such as the DLSS indicator")
