@@ -2,6 +2,11 @@
 
 Releases before 1.1.3 are listed on the [releases page](https://github.com/handsomefox/dlss-updater/releases).
 
+## 1.3.6
+
+- Replace the yanked clipboard-win 5.4.1 with 5.4.3.
+- Update tokio to 1.54.1 and webpki-root-certs to 1.0.11.
+
 ## 1.3.5
 
 - Stop offering DLSS updates for games on DLSS 1, such as Battlefield V. A DLSS 2 or later DLL
