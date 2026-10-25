@@ -2,6 +2,15 @@
 
 Releases before 1.1.3 are listed on the [releases page](https://github.com/handsomefox/dlss-updater/releases).
 
+## 1.4.0
+
+- DLSS Updater can now update itself from its GitHub releases. It checks once a day, and when a
+  new version is out, a chip in the toolbar names it. Click the chip to read what changed since
+  your version, then download the update, skip that version, or leave it for later. The download
+  must match its published SHA-256 checksums before it replaces the app, and a restart finishes
+  the install. To check more or less often, or never, open **About** > **App updates**.
+- Getting 1.4.0 itself is still a manual download. Later versions install from inside the app.
+
 ## 1.3.6
 
 - Replace the yanked clipboard-win 5.4.1 with 5.4.3.
